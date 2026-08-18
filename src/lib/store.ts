@@ -1,91 +1,170 @@
-import { promises as fs } from "fs";
-import path from "path";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
+import type { Job, JobStatus, QuoteRequest } from "./types";
 
-// Lightweight JSON-file-backed storage for local development.
-// This is a placeholder persistence layer: swap for a real database
-// (Postgres, SQLite via Prisma, etc.) once the admin platform grows
-// beyond a single-instance deployment.
+// Cloudflare D1-backed data access (SQLite). Locally, `next dev` reaches
+// the same binding via Miniflare emulation (see initOpenNextCloudflareForDev()
+// in next.config.ts); in production it's the real D1 database bound as
+// `DB` in wrangler.jsonc. Run migrations/0001_init.sql against both
+// before first use — see README.md.
 
-const DATA_DIR = path.join(process.cwd(), "data");
-
-async function ensureDataDir() {
-  await fs.mkdir(DATA_DIR, { recursive: true });
+function db() {
+  return getCloudflareContext().env.DB;
 }
 
-async function readCollection<T>(file: string, seed: T[]): Promise<T[]> {
-  await ensureDataDir();
-  const filePath = path.join(DATA_DIR, file);
-  try {
-    const raw = await fs.readFile(filePath, "utf-8");
-    return JSON.parse(raw) as T[];
-  } catch {
-    await fs.writeFile(filePath, JSON.stringify(seed, null, 2), "utf-8");
-    return seed;
-  }
+function rowToJob(row: Record<string, unknown>): Job {
+  return {
+    id: row.id as string,
+    customerName: row.customer_name as string,
+    phone: (row.phone as string) ?? "",
+    address: row.address as string,
+    serviceType: row.service_type as string,
+    date: row.date as string,
+    time: (row.time as string) ?? "",
+    crew: (row.crew as string) ?? "Unassigned",
+    status: row.status as JobStatus,
+    notes: (row.notes as string) ?? "",
+    createdAt: row.created_at as string,
+  };
 }
 
-async function writeCollection<T>(file: string, items: T[]): Promise<void> {
-  await ensureDataDir();
-  const filePath = path.join(DATA_DIR, file);
-  await fs.writeFile(filePath, JSON.stringify(items, null, 2), "utf-8");
+function rowToQuoteRequest(row: Record<string, unknown>): QuoteRequest {
+  return {
+    id: row.id as string,
+    name: row.name as string,
+    phone: row.phone as string,
+    email: (row.email as string) ?? "",
+    address: row.address as string,
+    serviceType: row.service_type as string,
+    message: (row.message as string) ?? "",
+    createdAt: row.created_at as string,
+  };
 }
 
-export const jobsStore = {
-  list: () => readCollection("jobs.json", seedJobs),
-  save: (items: Awaited<ReturnType<typeof readCollection<import("./types").Job>>>) =>
-    writeCollection("jobs.json", items),
+export interface NewJobInput {
+  customerName: string;
+  phone?: string;
+  address: string;
+  serviceType: string;
+  date: string;
+  time?: string;
+  crew?: string;
+  notes?: string;
+}
+
+export const jobsRepo = {
+  async list(): Promise<Job[]> {
+    const { results } = await db()
+      .prepare("SELECT * FROM jobs ORDER BY date ASC, time ASC")
+      .all<Record<string, unknown>>();
+    return results.map(rowToJob);
+  },
+
+  async create(input: NewJobInput): Promise<Job> {
+    const job: Job = {
+      id: crypto.randomUUID(),
+      customerName: input.customerName,
+      phone: input.phone ?? "",
+      address: input.address,
+      serviceType: input.serviceType,
+      date: input.date,
+      time: input.time ?? "",
+      crew: input.crew ?? "Unassigned",
+      status: "scheduled",
+      notes: input.notes ?? "",
+      createdAt: new Date().toISOString(),
+    };
+
+    await db()
+      .prepare(
+        `INSERT INTO jobs (id, customer_name, phone, address, service_type, date, time, crew, status, notes, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(
+        job.id,
+        job.customerName,
+        job.phone,
+        job.address,
+        job.serviceType,
+        job.date,
+        job.time,
+        job.crew,
+        job.status,
+        job.notes,
+        job.createdAt
+      )
+      .run();
+
+    return job;
+  },
+
+  async updateStatus(id: string, status: JobStatus): Promise<Job | null> {
+    const result = await db()
+      .prepare("UPDATE jobs SET status = ? WHERE id = ?")
+      .bind(status, id)
+      .run();
+
+    if (!result.meta.changes) return null;
+
+    const row = await db()
+      .prepare("SELECT * FROM jobs WHERE id = ?")
+      .bind(id)
+      .first<Record<string, unknown>>();
+
+    return row ? rowToJob(row) : null;
+  },
+
+  async remove(id: string): Promise<boolean> {
+    const result = await db().prepare("DELETE FROM jobs WHERE id = ?").bind(id).run();
+    return Boolean(result.meta.changes);
+  },
 };
 
-export const quoteRequestsStore = {
-  list: () => readCollection("quote-requests.json", [] as import("./types").QuoteRequest[]),
-  save: (items: import("./types").QuoteRequest[]) => writeCollection("quote-requests.json", items),
-};
-
-import type { Job } from "./types";
-
-const seedJobs: Job[] = [
-  {
-    id: "seed-1",
-    customerName: "Karen Whitfield",
-    phone: "(816) 555-0142",
-    address: "4521 W 71st St, Prairie Village, KS",
-    serviceType: "Tree Removal",
-    date: nextWeekday(1),
-    time: "8:00 AM",
-    crew: "Crew A",
-    status: "scheduled",
-    notes: "Large silver maple, close to power line. Bring bucket truck.",
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "seed-2",
-    customerName: "Marcus Denny",
-    phone: "(913) 555-0198",
-    address: "1180 NE Vivion Rd, Kansas City, MO",
-    serviceType: "Trimming / Pruning",
-    date: nextWeekday(2),
-    time: "10:30 AM",
-    crew: "Crew B",
-    status: "scheduled",
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "seed-3",
-    customerName: "Angela Ruiz",
-    phone: "(816) 555-0170",
-    address: "902 W 39th St, Kansas City, MO",
-    serviceType: "Stump Grinding",
-    date: nextWeekday(4),
-    time: "1:00 PM",
-    crew: "Crew A",
-    status: "requested",
-    notes: "Two stumps in backyard, confirm gate access code.",
-    createdAt: new Date().toISOString(),
-  },
-];
-
-function nextWeekday(daysAhead: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + daysAhead);
-  return d.toISOString().slice(0, 10);
+export interface NewQuoteRequestInput {
+  name: string;
+  phone: string;
+  email?: string;
+  address: string;
+  serviceType: string;
+  message?: string;
 }
+
+export const quoteRequestsRepo = {
+  async list(): Promise<QuoteRequest[]> {
+    const { results } = await db()
+      .prepare("SELECT * FROM quote_requests ORDER BY created_at DESC")
+      .all<Record<string, unknown>>();
+    return results.map(rowToQuoteRequest);
+  },
+
+  async create(input: NewQuoteRequestInput): Promise<QuoteRequest> {
+    const quoteRequest: QuoteRequest = {
+      id: crypto.randomUUID(),
+      name: input.name,
+      phone: input.phone,
+      email: input.email ?? "",
+      address: input.address,
+      serviceType: input.serviceType,
+      message: input.message ?? "",
+      createdAt: new Date().toISOString(),
+    };
+
+    await db()
+      .prepare(
+        `INSERT INTO quote_requests (id, name, phone, email, address, service_type, message, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(
+        quoteRequest.id,
+        quoteRequest.name,
+        quoteRequest.phone,
+        quoteRequest.email,
+        quoteRequest.address,
+        quoteRequest.serviceType,
+        quoteRequest.message,
+        quoteRequest.createdAt
+      )
+      .run();
+
+    return quoteRequest;
+  },
+};

@@ -1,14 +1,14 @@
 import Link from "next/link";
-import { jobsStore, quoteRequestsStore } from "@/lib/store";
+import { jobsRepo, quoteRequestsRepo } from "@/lib/store";
 
-// This reads from a local file store on every request, so the route must
-// stay dynamic rather than being prerendered at build time.
+// Reads from Cloudflare D1 on every request, so this route must stay
+// dynamic rather than being prerendered at build time.
 export const dynamic = "force-dynamic";
 
 export default async function AdminHomePage() {
   const [jobs, quotes] = await Promise.all([
-    jobsStore.list(),
-    quoteRequestsStore.list(),
+    jobsRepo.list(),
+    quoteRequestsRepo.list(),
   ]);
 
   const upcoming = jobs.filter((j) => j.status === "scheduled").length;

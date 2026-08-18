@@ -1,24 +1,36 @@
 import { NextResponse } from "next/server";
-import { jobsStore } from "@/lib/store";
+import { jobsRepo } from "@/lib/store";
+import type { JobStatus } from "@/lib/types";
+
+const VALID_STATUSES: JobStatus[] = [
+  "requested",
+  "scheduled",
+  "in-progress",
+  "completed",
+  "cancelled",
+];
 
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const body = await request.json();
+  const body = (await request.json()) as { status?: string };
+  const status = body?.status as JobStatus | undefined;
 
-  const jobs = await jobsStore.list();
-  const index = jobs.findIndex((job) => job.id === id);
+  if (!status || !VALID_STATUSES.includes(status)) {
+    return NextResponse.json(
+      { error: `Status must be one of: ${VALID_STATUSES.join(", ")}` },
+      { status: 400 }
+    );
+  }
 
-  if (index === -1) {
+  const job = await jobsRepo.updateStatus(id, status);
+  if (!job) {
     return NextResponse.json({ error: "Job not found." }, { status: 404 });
   }
 
-  jobs[index] = { ...jobs[index], ...body };
-  await jobsStore.save(jobs);
-
-  return NextResponse.json(jobs[index]);
+  return NextResponse.json(job);
 }
 
 export async function DELETE(
@@ -26,13 +38,11 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const jobs = await jobsStore.list();
-  const updated = jobs.filter((job) => job.id !== id);
+  const removed = await jobsRepo.remove(id);
 
-  if (updated.length === jobs.length) {
+  if (!removed) {
     return NextResponse.json({ error: "Job not found." }, { status: 404 });
   }
 
-  await jobsStore.save(updated);
   return NextResponse.json({ ok: true });
 }

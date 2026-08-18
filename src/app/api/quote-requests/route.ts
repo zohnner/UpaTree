@@ -1,19 +1,16 @@
 import { NextResponse } from "next/server";
-import { quoteRequestsStore } from "@/lib/store";
-import type { QuoteRequest } from "@/lib/types";
+import { quoteRequestsRepo } from "@/lib/store";
 
-// Backed by a local file store that changes on every write, so this
-// route must not be statically cached.
+// Reads/writes Cloudflare D1, which must always be queried live.
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const requests = await quoteRequestsStore.list();
+  const requests = await quoteRequestsRepo.list();
   return NextResponse.json(requests);
 }
 
 export async function POST(request: Request) {
-  const body = await request.json();
-
+  const body = (await request.json()) as Record<string, string | undefined>;
   const { name, phone, email, address, serviceType, message } = body ?? {};
 
   if (!name || !phone || !address || !serviceType) {
@@ -23,19 +20,14 @@ export async function POST(request: Request) {
     );
   }
 
-  const newRequest: QuoteRequest = {
-    id: crypto.randomUUID(),
+  const newRequest = await quoteRequestsRepo.create({
     name,
     phone,
-    email: email ?? "",
+    email,
     address,
     serviceType,
-    message: message ?? "",
-    createdAt: new Date().toISOString(),
-  };
-
-  const existing = await quoteRequestsStore.list();
-  await quoteRequestsStore.save([newRequest, ...existing]);
+    message,
+  });
 
   // TODO: send an email/SMS notification to the office once a
   // notification provider (e.g. Resend, Twilio) is wired up.

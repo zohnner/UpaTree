@@ -1,18 +1,16 @@
 import { NextResponse } from "next/server";
-import { jobsStore } from "@/lib/store";
-import type { Job } from "@/lib/types";
+import { jobsRepo } from "@/lib/store";
 
-// Backed by a local file store that changes on every write, so this
-// route must not be statically cached.
+// Reads/writes Cloudflare D1, which must always be queried live.
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const jobs = await jobsStore.list();
+  const jobs = await jobsRepo.list();
   return NextResponse.json(jobs);
 }
 
 export async function POST(request: Request) {
-  const body = await request.json();
+  const body = (await request.json()) as Record<string, string | undefined>;
   const { customerName, phone, address, serviceType, date, time, crew, notes } =
     body ?? {};
 
@@ -23,25 +21,16 @@ export async function POST(request: Request) {
     );
   }
 
-  const newJob: Job = {
-    id: crypto.randomUUID(),
+  const newJob = await jobsRepo.create({
     customerName,
-    phone: phone ?? "",
+    phone,
     address,
     serviceType,
     date,
-    time: time ?? "",
-    crew: crew ?? "Unassigned",
-    status: "scheduled",
-    notes: notes ?? "",
-    createdAt: new Date().toISOString(),
-  };
-
-  const existing = await jobsStore.list();
-  const updated = [...existing, newJob].sort((a, b) =>
-    a.date === b.date ? a.time.localeCompare(b.time) : a.date.localeCompare(b.date)
-  );
-  await jobsStore.save(updated);
+    time,
+    crew,
+    notes,
+  });
 
   return NextResponse.json(newJob, { status: 201 });
 }

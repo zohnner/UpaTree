@@ -1,11 +1,11 @@
-import { quoteRequestsStore } from "@/lib/store";
+import { quoteRequestsRepo } from "@/lib/store";
 
-// This reads from a local file store on every request, so the route must
-// stay dynamic rather than being prerendered at build time.
+// Reads from Cloudflare D1 on every request, so this route must stay
+// dynamic rather than being prerendered at build time.
 export const dynamic = "force-dynamic";
 
 export default async function QuotesPage() {
-  const quotes = await quoteRequestsStore.list();
+  const quotes = await quoteRequestsRepo.list();
 
   return (
     <div>

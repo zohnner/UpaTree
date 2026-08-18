@@ -43,9 +43,6 @@ yarn-error.log*
 .dev.vars.*
 cloudflare-env.d.ts
 
-# local JSON-file data store (placeholder persistence, not for prod)
-/data
-
 # typescript
 *.tsbuildinfo
 next-env.d.ts
