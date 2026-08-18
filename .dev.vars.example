@@ -1,0 +1,7 @@
+# Copy this file to `.dev.vars` (gitignored) for local development.
+# In production these are set as Cloudflare secrets instead:
+#   npx wrangler secret put ADMIN_PASSWORD
+#   npx wrangler secret put SESSION_SECRET
+
+ADMIN_PASSWORD=change-me-locally
+SESSION_SECRET=any-long-random-string-for-local-dev-only
