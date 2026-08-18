@@ -15,14 +15,7 @@
 		{
 			"binding": "DB",
 			"database_name": "upatree-db",
-			// Replace with the real ID printed by `npx wrangler d1 create upatree-db`.
 			"database_id": "1f2dfa0b-7e3a-4841-9601-8f68121f5d56"
-		},
-		{
-			"binding": "upatree_db",
-			"database_name": "upatree-db",
-			"database_id": "1f2dfa0b-7e3a-4841-9601-8f68121f5d56",
-			"remote": true
 		}
 	]
 }
